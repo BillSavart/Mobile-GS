@@ -90,8 +90,15 @@ def main():
         rec("WARN", "nvcc not on PATH", "fine if extensions are already built")
 
     # ---------- 3. python packages ----------
+    # Complete set of third-party imports in the repo, obtained by statically
+    # scanning every module (requirements.txt lists only a subset).
+    check_import("numpy")
+    check_import("torchvision")
     check_import("tqdm")
     check_import("plyfile")
+    check_import("PIL", "pillow (PIL)", hint="pip install pillow   <-- MISSING from requirements.txt")
+    check_import("matplotlib", "matplotlib (imported by gaussian_renderer)",
+                 hint="pip install matplotlib   <-- MISSING from requirements.txt")
     check_import("dahuffman", hint="pip install dahuffman")
     # module-level imports inside scene/gaussian_model.py -> hard requirements
     check_import("tinycudann", "tinycudann (required by scene/gaussian_model.py)",
