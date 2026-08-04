@@ -96,8 +96,10 @@ def main():
     # module-level imports inside scene/gaussian_model.py -> hard requirements
     check_import("tinycudann", "tinycudann (required by scene/gaussian_model.py)",
                  hint="pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch")
+    check_import("cupy", "cupy (required by scene/gaussian_model.py)",
+                 hint="pip install cupy-cuda11x   <-- MISSING from requirements.txt")
     check_import("cuml", "cuml (required by scene/gaussian_model.py)",
-                 hint='pip install --extra-index-url=https://pypi.nvidia.com "cuml-cu11==25.2.*"')
+                 hint='pip install --extra-index-url=https://pypi.nvidia.com "cudf-cu11==25.2.*" "cuml-cu11==25.2.*"')
 
     # ---------- 4. CUDA extensions ----------
     ras_ms = check_import("diff_gaussian_rasterization_ms", "rasterizer: _ms (used by render_imp)",
