@@ -48,13 +48,19 @@ cd mpeg-pcc-tmc13 && mkdir build && cd build && cmake .. && make -j && cd ../..
 ls mpeg-pcc-tmc13/build/tmc3/tmc3    # 確認存在
 ```
 
-**驗證安裝:**
+### 2.8 驗證安裝(一行搞定)
+
 ```bash
-python -c "import torch; print(torch.cuda.is_available())"                      # True
-python -c "import diff_gaussian_rasterization_ms_nosorting; print('ok')"        # ok
-python -c "import diff_gaussian_rasterization_ms, simple_knn; print('ok')"      # ok
-python -c "import dahuffman, cuml; print('ok')"                                 # ok
+python check_env_4d.py       # 必須在 repo 根目錄執行
 ```
+
+會逐項檢查並印出 PASS/FAIL:Python/torch/GPU、nvcc、四個 CUDA 擴充、tinycudann、cuml、
+tmc3,並且**實際執行 CUDA kernel**(simple_knn + Mobile-GS 光柵化器)。
+
+> 為什麼要跑 kernel:擴充若是用錯誤的 GPU 架構編譯,`import` 會成功,直到訓練跑下去才炸
+> `no kernel image is available for execution on the device`。這支腳本會當場抓出來。
+
+全綠(exit code 0)才代表可以開始訓練;有 FAIL 時腳本會直接告訴你缺什麼、指令是什麼。
 
 ---
 
