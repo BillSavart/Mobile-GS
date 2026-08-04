@@ -98,6 +98,8 @@ def main():
                  hint="pip install git+https://github.com/NVlabs/tiny-cuda-nn/#subdirectory=bindings/torch")
     check_import("cupy", "cupy (required by scene/gaussian_model.py)",
                  hint="pip install cupy-cuda11x   <-- MISSING from requirements.txt")
+    check_import("icecream", "icecream (required by scene/gaussian_model.py)",
+                 hint="pip install icecream   <-- MISSING from requirements.txt")
     check_import("cuml", "cuml (required by scene/gaussian_model.py)",
                  hint='pip install --extra-index-url=https://pypi.nvidia.com "cudf-cu11==25.2.*" "cuml-cu11==25.2.*"')
 

@@ -38,9 +38,10 @@ nvcc --version   # 若非 11.8,安裝 CUDA Toolkit 11.8 並把它排在 PATH 前
 export TORCH_CUDA_ARCH_LIST="8.9"       # 4090,加速編譯
 pip install -r requirements.txt
 
-# 2.6 ⚠️ 官方 requirements 漏掉、但 import 就會用到的三樣(缺任一都無法訓練)
+# 2.6 ⚠️ 官方 requirements 漏掉、但 import 就會用到的(缺任一都無法訓練)
 pip install submodules/diff-gaussian-rasterization_ms_nosorting   # sort-free 光柵化器
 pip install cupy-cuda11x                                          # gaussian_model.py:28
+pip install icecream                                              # gaussian_model.py:30
 # cuml 若 2.5 步沒裝成功,單獨補:
 pip install --extra-index-url=https://pypi.nvidia.com "cudf-cu11==25.2.*" "cuml-cu11==25.2.*"
 
@@ -175,6 +176,7 @@ out/seg0_f0/
 |---|---|
 | `No module named diff_gaussian_rasterization_ms_nosorting` | 步驟 2.6 沒做(官方 requirements 漏了它)|
 | `No module named cupy` | `pip install cupy-cuda11x`(CUDA 11.8 對應 11x;官方 requirements 也漏了)|
+| `No module named icecream` | `pip install icecream`(官方 requirements 也漏了)|
 | `No module named cuml` | `pip install --extra-index-url=https://pypi.nvidia.com "cudf-cu11==25.2.*" "cuml-cu11==25.2.*"` |
 | 編譯擴充時 `no kernel image / sm_89` 錯誤 | `export TORCH_CUDA_ARCH_LIST="8.9"` 後重裝 submodules |
 | `tmc3: not found` 或壓縮階段 crash | tmc3 沒編好,或不是從 repo 根目錄執行(路徑寫死 `./mpeg-pcc-tmc13/...`)|
