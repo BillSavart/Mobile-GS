@@ -116,6 +116,52 @@ EOF
 
 > 注意 ffmpeg 輸出從 000001 起算,上面腳本已對齊成 frames/000000 開始。
 
+### 3.3b DualGS 資料集轉接(例:`0412_YP_dual`)
+
+DualGS 的輸出格式與本流程幾乎一致,**用軟連結對接即可,不需複製任何影像**:
+
+原始結構
+```
+0412_YP_dual/
+  colmap/sparse/{cameras,images,points3D}.bin   # 85 台 PINHOLE 相機
+  0/images/106.png ...                          # 時間點 0 的 85 個視角
+  0/transforms.json                             # (本流程不使用,COLMAP 才是來源)
+  transforms.json, points3d.ply
+```
+
+對接指令(在資料集根目錄執行)
+```bash
+cd 0412_YP_dual
+mkdir -p sparse frames
+ln -s ../colmap/sparse  sparse/0        # loader 固定讀 <root>/sparse/0/
+ln -s ../0/images       frames/000000   # 時間點 0 -> frame 000000
+# 之後每個時間點比照:ln -s ../<t>/images frames/{t:06d}
+ls -l sparse/0/cameras.bin frames/000000/106.png   # 驗證連結可讀
+```
+
+**已驗證**:COLMAP 註冊名(`106.png`、`110.png`…)與實際檔名完全一致 ✓
+
+#### 兩個 DualGS 專屬注意事項
+
+1. **影像是 RGBA 去背圖**(約 93% 像素透明,透明區 RGB≈黑)。
+   本 repo 的 `utils/camera_utils.py:46` 判斷 alpha 用 `resized_image_rgb.shape[1] == 4`,
+   但張量是 `(C,H,W)`,通道在 `shape[0]` —— 這是上游 3DGS 傳下來的 bug,**alpha 遮罩實際上never
+   被套用**。因為透明區 RGB 已是黑色,訓練仍會正確學成「黑底人物」,
+   所以**不要加 `--white_background`**(維持預設黑底,與 GT 一致)。
+   若想讓輪廓邊緣更乾淨,可把該行改成 `shape[0] == 4`(選用,影響僅在半透明邊緣)。
+
+2. **原圖 4335×2238(~9.7MP)**,loader 會自動降到 1600 寬。但序列訓練**每幀都要重新解碼
+   85 張大 PNG**,I/O 會變成瓶頸。強烈建議**預先降取樣**:
+   ```bash
+   # 對每個時間點做一次(需 imagemagick:sudo apt install imagemagick)
+   mkdir -p frames_1600/000000
+   for f in 0/images/*.png; do
+     convert "$f" -resize 1600x -strip "frames_1600/000000/$(basename $f)"
+   done
+   # 訓練時改用 --images frames_1600/000000
+   ```
+   解碼時間可降約 6 倍,對 450 幀的序列訓練差異極大。
+
 ### 3.4 校正來源二選一
 
 - **已有校正**(例如 DualGS 用的那套):轉成 COLMAP 的 `sparse/0`(cameras/images/points3D),影像名對齊即可。
