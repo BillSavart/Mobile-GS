@@ -226,6 +226,7 @@ out/seg0_f0/
 | 症狀 | 原因 / 解法 |
 |---|---|
 | `No module named diff_gaussian_rasterization_ms_nosorting` | 步驟 2.6 沒做(官方 requirements 漏了它)|
+| 重裝擴充時 `ModuleNotFoundError: No module named 'torch'` | pip 的 build isolation 看不到 torch,加 `--no-build-isolation`(見下方「修改 CUDA 擴充後重編」)|
 | `No module named cupy` | `pip install cupy-cuda11x`(CUDA 11.8 對應 11x;官方 requirements 也漏了)|
 | `No module named icecream` / `matplotlib` / `PIL` | `pip install icecream matplotlib pillow`(官方 requirements 全都漏了)|
 | `No module named cuml` | `pip install --extra-index-url=https://pypi.nvidia.com "cudf-cu11==25.2.*" "cuml-cu11==25.2.*"` |
@@ -236,6 +237,21 @@ out/seg0_f0/
 | `--extract_frame0` 在 decode 階段報錯 | 這是新程式碼最可能出問題的點——把完整錯誤訊息回報,修正後會推上分支 |
 
 ---
+
+## 6b. 修改 CUDA 擴充後重編
+
+`submodules/` 底下的 `.cu` 改動過(例如本分支修掉的光柵化器 NaN)之後,必須重編才會生效:
+
+```bash
+cd ~/Desktop/Mobile-GS
+rm -rf submodules/diff-gaussian-rasterization_ms/build
+rm -rf submodules/diff-gaussian-rasterization_ms_nosorting/build
+pip install --force-reinstall --no-deps --no-build-isolation submodules/diff-gaussian-rasterization_ms
+pip install --force-reinstall --no-deps --no-build-isolation submodules/diff-gaussian-rasterization_ms_nosorting
+```
+
+- **`--no-build-isolation` 必加**:否則 pip 會在乾淨環境建置,`setup.py` 找不到 torch
+- **先刪 `build/`**:否則 setuptools 可能沿用舊的目的檔,`.cu` 的修改不會生效
 
 ## 7. 訓練規模建議
 
