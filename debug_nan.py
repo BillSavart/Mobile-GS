@@ -42,6 +42,12 @@ def main():
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
     parser.add_argument("--start_checkpoint", type=str, required=True)
+    parser.add_argument("--steps", type=int, default=0,
+                        help="also run N training steps, checking params/grads each "
+                             "iteration and stopping at the first non-finite value")
+    parser.add_argument("--no_opt_state", action="store_true",
+                        help="skip optimizer.load_state_dict (tests whether the "
+                             "restored Adam moments are what blows up)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(sys.argv[1:])
     safe_state(args.quiet)
@@ -61,7 +67,10 @@ def main():
     gaussians.onedownSHdegree()
     gaussians.init_vnn(opt)
     gaussians.training_setup(opt)
-    gaussians.optimizer.load_state_dict(opt_dict)
+    if args.no_opt_state:
+        print(">>> SKIPPING optimizer.load_state_dict (--no_opt_state)")
+    else:
+        gaussians.optimizer.load_state_dict(opt_dict)
 
     bg = torch.tensor([1, 1, 1] if dataset.white_background else [0, 0, 0],
                       dtype=torch.float32, device="cuda")
@@ -124,7 +133,7 @@ def main():
           f"   (lambda_dssim={opt.lambda_dssim}, lambda_distill={opt.lambda_distill}, "
           f"lambda_depth={opt.lambda_depth})")
 
-    print("\n=== verdict ===")
+    print("\n=== verdict (forward pass) ===")
     culprits = [k for k, v in terms.items() if not torch.isfinite(v).all()]
     if culprits:
         print("  non-finite loss term(s):", ", ".join(culprits))
@@ -132,11 +141,87 @@ def main():
             print("  -> workaround: train.py ... --lambda_depth 0")
         if "distill L1" in culprits:
             print("  -> workaround: train.py ... --lambda_distill 0")
-    elif not torch.isfinite(total):
+        return
+    if not torch.isfinite(total):
         print("  individual terms are finite but the total is not (check lambdas)")
-    else:
-        print("  all finite at iteration 0 — the NaN appears LATER in training;")
-        print("  re-run train.py and note the iteration where the progress bar turns nan.")
+        return
+    print("  forward pass is clean at iteration 0.")
+
+    if args.steps <= 0:
+        print("  Re-run with --steps 200 to find which step/tensor breaks.")
+        return
+
+    # ------------------------------------------------------------------
+    # Training-step loop: the forward pass is fine, so the failure is in the
+    # backward / optimizer update. Check params and grads EVERY iteration and
+    # stop at the first non-finite value, naming the tensor.
+    # ------------------------------------------------------------------
+    print(f"\n=== running {args.steps} training steps ===")
+    print(f"  spatial_lr_scale = {gaussians.spatial_lr_scale}")
+    for g in gaussians.optimizer.param_groups:
+        print(f"  lr[{g['name']:<16}] = {g['lr']:.3e}")
+
+    from random import randint
+    named = lambda: [(n, getattr(gaussians, n)) for n in
+                     ["_xyz", "_features_dc", "_features_rest", "_scaling", "_rotation", "_opacity"]]
+    cams = scene.getTrainCameras()
+    stack = []
+    for it in range(1, args.steps + 1):
+        gaussians.update_learning_rate(it)
+        if not stack:
+            stack = cams.copy()
+        c = stack.pop(randint(0, len(stack) - 1))
+
+        p = render_imp(c, gaussians, pipe, bg)
+        tp = render_teacher(c, gaussians_tea, pipe, bg)
+        g_ = c.original_image.cuda()
+        loss = ((1.0 - opt.lambda_dssim) * l1_loss(p["render"], g_)
+                + opt.lambda_dssim * (1.0 - ssim(p["render"], g_))
+                + opt.lambda_distill * l1_loss(p["render"], tp["render"])
+                + 2 * opt.lambda_depth * scale_invariant_loss(p["render_depth"], tp["render_depth"]))
+        loss.backward()
+
+        broke = None
+        if not torch.isfinite(loss):
+            broke = "loss (forward)"
+        if broke is None:
+            for n, t in named():
+                if t.grad is not None and not torch.isfinite(t.grad).all():
+                    broke = f"GRADIENT of {n}"
+                    break
+        if broke:
+            print(f"\n  >>> step {it} ({c.image_name}): FIRST non-finite = {broke}")
+            print(f"      loss={float(loss):.6g}")
+            for n, t in named():
+                stat(f"{n}", t)
+                if t.grad is not None:
+                    stat(f"{n}.grad", t.grad)
+            print("\n  Forward was clean, so this is a gradient explosion, not bad data.")
+            print("  Try, in order:")
+            print("    1) --no_opt_state         (restored Adam moments mismatched)")
+            print("    2) --lambda_depth 0       (scale-invariant depth grads)")
+            print("    3) --lambda_distill 0")
+            return
+
+        gaussians.optimizer.step()
+        gaussians.optimizer.zero_grad(set_to_none=True)
+        gaussians.opacity_nn_optimizer.step()
+        gaussians.opacity_nn_optimizer.zero_grad(set_to_none=True)
+
+        for n, t in named():
+            if not torch.isfinite(t).all():
+                print(f"\n  >>> step {it}: parameter '{n}' became non-finite AFTER optimizer.step()")
+                stat(n, t)
+                print("\n  The update itself diverged (learning rate / Adam state).")
+                print("  Try: --no_opt_state, then a lower --position_lr_init.")
+                return
+
+        if it % 10 == 0 or it == 1:
+            print(f"  step {it:4d}  loss={float(loss):.6f}")
+
+    print(f"\n  {args.steps} steps completed with no NaN.")
+    print("  The failure must occur later — likely at a pruning boundary")
+    print(f"  (every {opt.pruning_interval} iters) or at net_itr/svq_itr.")
 
 
 if __name__ == "__main__":
