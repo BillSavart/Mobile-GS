@@ -192,6 +192,40 @@ def main():
         if broke:
             print(f"\n  >>> step {it} ({c.image_name}): FIRST non-finite = {broke}")
             print(f"      loss={float(loss):.6g}")
+            if broke == "loss (forward)":
+                # Which produced the nan: the render, the depth, or a loss term?
+                print("\n  -- forward breakdown at the failing step --")
+                stat("student render", p["render"])
+                stat("student render_depth", p["render_depth"])
+                stat("teacher render", tp["render"])
+                stat("teacher render_depth", tp["render_depth"])
+                stat("MLP opacity", p.get("opacity"))
+                d = p["render_depth"].detach()
+                dpos = d[d > 0]
+                print(f"     student depth >0 min = {float(dpos.min()) if dpos.numel() else float('nan'):.6g}"
+                      f"   negatives = {int((d < 0).sum())}")
+                for nm, fn in [
+                        ("L1", lambda: l1_loss(p["render"], g_)),
+                        ("1-SSIM", lambda: 1.0 - ssim(p["render"], g_)),
+                        ("distill L1", lambda: l1_loss(p["render"], tp["render"])),
+                        ("depth (scale-inv)", lambda: scale_invariant_loss(p["render_depth"], tp["render_depth"]))]:
+                    with torch.no_grad():
+                        v = fn()
+                    print(f"     {nm:<20} {float(v):.6g}" + ("   <<< BAD" if not torch.isfinite(v) else ""))
+                # Per-gaussian quantities feeding the Mobile-GS weight exp(maxScale/depth)
+                with torch.no_grad():
+                    xyz_ = gaussians.get_xyz
+                    zc = ((xyz_ - c.camera_center.cuda()) @ torch.tensor(
+                        c.R, dtype=torch.float32, device="cuda"))[:, 2]
+                    front = zc[zc > 0]
+                    print(f"     view-space z: min={float(zc.min()):.4g} "
+                          f"min_positive={float(front.min()) if front.numel() else float('nan'):.4g} "
+                          f"behind_camera={int((zc <= 0).sum())}")
+                    ms = gaussians.get_scaling.max(dim=1)[0]
+                    print(f"     max scale: {float(ms.max()):.4g}   "
+                          f"worst exp(maxS/z) exponent ~ "
+                          f"{float((ms[zc > 0] / front.clamp_min(1e-6)).max()) if front.numel() else float('nan'):.4g}"
+                          f"   (>88 overflows fp32)")
             for n, t in named():
                 stat(f"{n}", t)
                 if t.grad is not None:
