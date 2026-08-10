@@ -281,7 +281,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         imp_score=imp_score+accum_weights
                     
                 imp_score[accum_area_max==0]=0
-                non_prune_mask = init_cdf_mask(importance=imp_score, thres=0.99) 
+                # thres=1.0 keeps every gaussian (init_cdf_mask short-circuits).
+                # Worth disabling for small single-subject captures, where the
+                # simplification designed for large scenes just removes detail.
+                non_prune_mask = init_cdf_mask(importance=imp_score, thres=args.cdf_thres)
                                 
                 gaussians.prune_points(non_prune_mask==False)
                 gaussians.training_setup(opt)
@@ -402,6 +405,10 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[30000])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--imp_metric", required=True, type=str, default = None)
+    parser.add_argument("--cdf_thres", type=float, default=0.99,
+                        help="importance-CDF prune at simp_iteration2: keep gaussians "
+                             "covering this fraction of total importance. 1.0 disables "
+                             "the prune entirely (recommended for single-subject scenes).")
 
 
 
