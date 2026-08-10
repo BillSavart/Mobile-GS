@@ -42,6 +42,10 @@ def main():
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
     parser.add_argument("--start_checkpoint", type=str, required=True)
+    parser.add_argument("--start_iter", type=int, default=1,
+                        help="iteration number to start the lr schedule at; train.py "
+                             "resumes at the checkpoint's iteration (30000), which "
+                             "gives a different lr than starting from 1")
     parser.add_argument("--steps", type=int, default=0,
                         help="also run N training steps, checking params/grads each "
                              "iteration and stopping at the first non-finite value")
@@ -167,7 +171,7 @@ def main():
     cams = scene.getTrainCameras()
     stack = []
     for it in range(1, args.steps + 1):
-        gaussians.update_learning_rate(it)
+        gaussians.update_learning_rate(args.start_iter + it - 1)
         if not stack:
             stack = cams.copy()
         c = stack.pop(randint(0, len(stack) - 1))
@@ -212,6 +216,28 @@ def main():
                     with torch.no_grad():
                         v = fn()
                     print(f"     {nm:<20} {float(v):.6g}" + ("   <<< BAD" if not torch.isfinite(v) else ""))
+                # Degenerate-gaussian hunt: the NaN is LOCALIZED (few hundred pixels)
+                # and the teacher render is clean, so a handful of gaussians have been
+                # driven into a state the rasterizer cannot handle.
+                with torch.no_grad():
+                    q = gaussians._rotation
+                    qn = q.norm(dim=1)
+                    s = gaussians.get_scaling
+                    smax = s.max(dim=1)[0]
+                    smin = s.min(dim=1)[0]
+                    aniso = smax / smin.clamp_min(1e-20)
+                    rad = p["radii"].float()
+                    print(f"     quat norm:  min={float(qn.min()):.3e}  "
+                          f"#(<1e-3)={int((qn < 1e-3).sum())}  #(nonfinite)={int((~torch.isfinite(qn)).sum())}")
+                    print(f"     scaling:    min={float(s.min()):.3e}  max={float(s.max()):.3e}  "
+                          f"#(>10)={int((smax > 10).sum())}")
+                    print(f"     anisotropy: max={float(aniso.max()):.3e}  "
+                          f"#(>1e5)={int((aniso > 1e5).sum())}   <- near-singular 3D covariance")
+                    print(f"     radii:      max={float(rad.max()):.0f}  "
+                          f"#(>2000)={int((rad > 2000).sum())}   (image is {p['render'].shape[-1]} px wide)")
+                    print(f"     opacity raw: min={float(gaussians._opacity.min()):.3f} "
+                          f"max={float(gaussians._opacity.max()):.3f}")
+
                 # Per-gaussian quantities feeding the Mobile-GS weight exp(maxScale/depth)
                 with torch.no_grad():
                     xyz_ = gaussians.get_xyz
