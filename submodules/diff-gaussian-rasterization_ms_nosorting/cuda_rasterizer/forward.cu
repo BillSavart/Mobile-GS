@@ -809,7 +809,9 @@ render_depthCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 		    {
-		    out_color[ch * H * W + pix_id] = (C[ch] +  bg_color[ch]) / w_fg_c[ch];
+		    // w_fg_c stays 0 when no gaussian passes the alpha cutoff for this pixel,
+		    // making this 0/0 = NaN. Guard with the same 1e-9 backward.cu uses.
+		    out_color[ch * H * W + pix_id] = (C[ch] +  bg_color[ch]) / fmaxf(w_fg_c[ch], 1e-9f);
             w_fg[ch * H * W + pix_id] = w_fg_c[ch];
             out_pts[ch * H * W + pix_id] = point_rec[ch];
             }

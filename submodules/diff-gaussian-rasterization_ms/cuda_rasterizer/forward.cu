@@ -427,7 +427,14 @@ renderCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 			{
-                out_color[ch * H * W + pix_id] = C[ch] / w_fg_c[ch] * (1-T) + T * bg_color[ch];
+                // w_fg_c is only accumulated by gaussians passing the alpha cutoff, so
+                // a pixel with no qualifying contribution leaves C=0 and w_fg_c=0 and
+                // this becomes 0/0 = NaN (which then survives the *(1-T) factor and
+                // poisons the whole loss). Dense scenes never hit it; a matted capture
+                // with a large empty background does, at silhouette pixels.
+                // 1e-9 matches the guard backward.cu already applies to the same
+                // quantity (fmaxf(ws[ch], 1e-9f)), so the two passes stay consistent.
+                out_color[ch * H * W + pix_id] = C[ch] / fmaxf(w_fg_c[ch], 1e-9f) * (1-T) + T * bg_color[ch];
                 w_fg[ch * H * W + pix_id] = w_fg_c[ch];
 
 			}
@@ -683,7 +690,8 @@ render_depthCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 		    {
-		    out_color[ch * H * W + pix_id] = (C[ch] +  bg_color[ch]) / w_fg_c[ch];
+		    // same 0/0 guard as the main render kernel above
+		    out_color[ch * H * W + pix_id] = (C[ch] +  bg_color[ch]) / fmaxf(w_fg_c[ch], 1e-9f);
             w_fg[ch * H * W + pix_id] = w_fg_c[ch];
             out_pts[ch * H * W + pix_id] = point_rec[ch];
             }
