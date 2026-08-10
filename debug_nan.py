@@ -204,6 +204,27 @@ def main():
                 stat("teacher render", tp["render"])
                 stat("teacher render_depth", tp["render_depth"])
                 stat("MLP opacity", p.get("opacity"))
+                # phi is a ReLU head (unbounded) and enters the Mobile-GS weight as
+                # exp(maxS/d) + phi/d^2 + phi^2 — the squared term is the runaway
+                # candidate, and the teacher (which has no MLP) renders clean.
+                with torch.no_grad():
+                    xyz_f = gaussians.get_xyz
+                    dpp = xyz_f - c.camera_center.cuda().repeat(xyz_f.shape[0], 1)
+                    dpp = dpp / dpp.norm(dim=1, keepdim=True)
+                    phi_f, _ = gaussians.opacity_phi_nn(
+                        gaussians.get_features, gaussians.get_scaling, xyz_f, dpp,
+                        gaussians.get_rotation)
+                    stat("MLP phi", phi_f)
+                    zc_ = ((xyz_f - c.camera_center.cuda()) @ torch.tensor(
+                        c.R, dtype=torch.float32, device="cuda"))[:, 2].clamp_min(1e-6)
+                    ms_ = gaussians.get_scaling.max(dim=1)[0]
+                    ph = phi_f[:, 0]
+                    w_ = torch.exp(ms_ / zc_) + ph / (zc_ * zc_) + ph * ph
+                    stat("Mobile-GS weight", w_)
+                    print(f"     weight terms: exp={float(torch.exp(ms_ / zc_).max()):.4g}  "
+                          f"phi/d^2={float((ph / (zc_ * zc_)).max()):.4g}  "
+                          f"phi^2={float((ph * ph).max()):.4g}   (fp32 max 3.4e38)")
+                    print(f"     sum(weight) over all gaussians = {float(w_.sum()):.4g}")
                 d = p["render_depth"].detach()
                 dpos = d[d > 0]
                 print(f"     student depth >0 min = {float(dpos.min()) if dpos.numel() else float('nan'):.6g}"
