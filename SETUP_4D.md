@@ -181,8 +181,13 @@ OUT=out/seg0                      # 本段輸出
 python pretrain.py -s $ROOT --images frames/000000 -m ${OUT}_f0 --eval \
     --imp_metric indoor --sh_degree 3 --iterations 30000
 python train.py -s $ROOT --images frames/000000 -m ${OUT}_f0 --eval \
-    --start_checkpoint ${OUT}_f0/chkpnt30000.pth
+    --start_checkpoint ${OUT}_f0/chkpnt30000.pth --reset_optimizer
 # ⏱ 4090 上兩步合計約 1–2 小時(一段只需做一次)
+#
+# --reset_optimizer 幾乎一定要加:上游會把 pretrain 的 Adam 動量搬進 finetune,
+# 但這階段 SH 剛從 15 係數砍到 3、opacity 改由 MLP 產生、又多了 distill/depth 損失,
+# 舊的二階動量會讓某一步暴衝 -> 參數飛掉 -> loss 變 nan(在 DualGS 人物資料上第 49 步就爆)。
+# 它同時還會覆寫本階段的學習率排程,所以不載入才是正確行為。
 
 # ── 步驟 2:抽出種子(純張量 PLY + 共用 MLP)──
 python train_sequence.py --extract_frame0 -s $ROOT --images frames/000000 \

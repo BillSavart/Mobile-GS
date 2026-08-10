@@ -58,7 +58,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         gaussians.init_vnn(opt)
         gaussians.training_setup(opt)
-        gaussians.optimizer.load_state_dict(opt_dict)
+        if args.reset_optimizer:
+            # Carrying pretrain's Adam moments into this phase is unsound: the SH
+            # basis was just cut from 15 coeffs to 3, opacity now comes from the
+            # MLP instead of _opacity, and distill/depth terms were added. Second
+            # moments sized for the old gradients make (lr * m / (sqrt(v)+eps))
+            # explode on the first large new gradient -> params blow up -> NaN
+            # forward (reproduced on a DualGS human capture at step 49).
+            # It also restores pretrain's FINAL lr, overriding this phase's schedule.
+            print("[train] Adam starts fresh (--reset_optimizer); pretrain moments "
+                  "and lr are not carried over")
+        else:
+            gaussians.optimizer.load_state_dict(opt_dict)
     print("current Gaussian number:", len(gaussians._xyz))
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -330,6 +341,10 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default=None)
+    parser.add_argument("--reset_optimizer", action="store_true",
+                        help="do not load pretrain's Adam state (stale after the SH "
+                             "downgrade and objective change; causes NaN divergence on "
+                             "some captures). Recommended.")
 
 
 
